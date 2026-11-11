@@ -1,6 +1,7 @@
 "use strict";
 
 const CONFIG = window.KOYO_CONFIG;
+const API_BASE = CONFIG.API_BASE.replace(/\/+$/, "");
 
 const $ = id => document.getElementById(id);
 
@@ -32,59 +33,46 @@ function setLoading(message) {
   $("loadingText").textContent = message;
 }
 
-function apiUrl(params = {}) {
-  const base = CONFIG.XTREAM_URL.replace(/\/+$/, "");
-  const url = new URL(base + "/player_api.php");
-
-  url.searchParams.set("username", CONFIG.USERNAME);
-  url.searchParams.set("password", CONFIG.PASSWORD);
+async function request(params = {}) {
+  const url = new URL(API_BASE + "/api/xtream");
 
   Object.entries(params).forEach(([key, value]) => {
     url.searchParams.set(key, value);
   });
 
-  return url;
-}
-
-async function request(params = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(apiUrl(params), {
+    const response = await fetch(url, {
       method: "GET",
       signal: controller.signal,
       cache: "no-store"
     });
 
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new Error("رفض الخادم الاتصال. تحقق من بيانات الاشتراك أو صلاحية الوصول.");
-      }
-
-      if (response.status === 404) {
-        throw new Error("مسار API غير موجود على خادم الشركة.");
-      }
-
-      throw new Error("رد الخادم برمز HTTP: " + response.status);
-    }
-
     const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(
+        "خطأ من الخادم: HTTP " + response.status +
+        (text ? " - " + text.slice(0, 180) : "")
+      );
+    }
 
     try {
       return JSON.parse(text);
     } catch {
-      throw new Error("الخادم لم يرجع بيانات JSON صحيحة. تحقق من عنوان Xtream.");
+      throw new Error("الخادم لم يرجع بيانات JSON صحيحة.");
     }
 
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error("انتهت مهلة الاتصال بالخادم. تحقق من الإنترنت وحاول مجدداً.");
+      throw new Error("انتهت مهلة الاتصال. حاول مرة ثانية.");
     }
 
     if (error instanceof TypeError) {
       throw new Error(
-        "تعذر الوصول إلى API. قد يكون السبب CORS أو مشكلة شبكة أو أن الخادم يستخدم HTTP غير متوافق مع GitHub Pages HTTPS."
+        "تعذر الاتصال بـCloudflare Worker. تحقق من الرابط والإنترنت."
       );
     }
 
@@ -99,15 +87,15 @@ function validAccount(data) {
   const info = data?.user_info;
 
   if (!info) {
-    throw new Error("رد الاشتراك غير متوقع. تأكد من أن بيانات Xtream صحيحة.");
+    throw new Error("بيانات الحساب غير صحيحة أو رد الخادم غير متوقع.");
   }
 
   if (String(info.auth) !== "1") {
-    throw new Error("بيانات الدخول غير صحيحة أو الاشتراك غير مفعّل.");
+    throw new Error("بيانات الاشتراك غير صحيحة أو الاشتراك غير مفعّل.");
   }
 
   if (String(info.status || "").toLowerCase() === "expired") {
-    throw new Error("انتهت صلاحية الاشتراك. تواصل مع مزود الخدمة.");
+    throw new Error("انتهت صلاحية الاشتراك.");
   }
 
   return info;
@@ -115,18 +103,16 @@ function validAccount(data) {
 
 async function loadEverything() {
   try {
-    if (!CONFIG || !CONFIG.XTREAM_URL ||
-        !CONFIG.USERNAME || !CONFIG.PASSWORD ||
-        CONFIG.XTREAM_URL.includes("YOUR-PROVIDER")) {
-      throw new Error("أكمل إعدادات Xtream داخل ملف config.js أولاً.");
+    if (!CONFIG?.API_BASE) {
+      throw new Error("رابط API_BASE غير موجود في config.js.");
     }
 
-    setLoading("جاري التحقق من بيانات الاشتراك...");
+    setLoading("جاري التحقق من الاشتراك...");
 
     const account = await request();
     validAccount(account);
 
-    setLoading("تم التحقق. جاري تحميل القنوات والأفلام والمسلسلات...");
+    setLoading("تم التحقق. جاري تحميل المحتوى...");
 
     const results = await Promise.allSettled([
       request({ action: "get_live_streams" }),
@@ -136,7 +122,7 @@ async function loadEverything() {
 
     if (results.every(result => result.status === "rejected")) {
       throw new Error(
-        "تم الاتصال بالحساب لكن فشل تحميل جميع الأقسام. " +
+        "فشل تحميل جميع الأقسام: " +
         results.map(r => r.reason.message).join(" | ")
       );
     }
@@ -153,7 +139,7 @@ async function loadEverything() {
     if (!Array.isArray(liveChannels) ||
         !Array.isArray(movies) ||
         !Array.isArray(series)) {
-      throw new Error("الخادم أرسل صيغة بيانات غير متوقعة.");
+      throw new Error("صيغة البيانات المستلمة غير صحيحة.");
     }
 
     liveChannels = liveChannels.filter(channel =>
@@ -175,9 +161,11 @@ function safeImage(url) {
 
   try {
     const parsed = new URL(url);
+
     if (!["http:", "https:"].includes(parsed.protocol)) {
       return imageFallback;
     }
+
     return parsed.href;
   } catch {
     return imageFallback;
@@ -198,7 +186,9 @@ function createCard(item, type) {
   img.src = safeImage(image);
   img.alt = title;
   img.loading = "lazy";
-  img.onerror = () => img.src = imageFallback;
+  img.onerror = () => {
+    img.src = imageFallback;
+  };
 
   const info = document.createElement("div");
   info.className = "card-info";
@@ -227,22 +217,23 @@ function createCard(item, type) {
   return card;
 }
 
+function streamUrl(type, id, ext) {
+  return API_BASE + "/stream/" +
+    encodeURIComponent(type) + "/" +
+    encodeURIComponent(id) + "." +
+    encodeURIComponent(ext);
+}
+
 function liveUrl(item) {
   return streamUrl("live", item.stream_id, "ts");
 }
 
 function movieUrl(item) {
-  const ext = item.container_extension || "mp4";
-  return streamUrl("movie", item.stream_id, ext);
-}
-
-function streamUrl(type, id, ext) {
-  const base = CONFIG.XTREAM_URL.replace(/\/+$/, "");
-
-  return base + "/" + type + "/" +
-    encodeURIComponent(CONFIG.USERNAME) + "/" +
-    encodeURIComponent(CONFIG.PASSWORD) + "/" +
-    encodeURIComponent(id) + "." + encodeURIComponent(ext);
+  return streamUrl(
+    "movie",
+    item.stream_id,
+    item.container_extension || "mp4"
+  );
 }
 
 function fillGrid(containerId, items, type, limit = Infinity) {
@@ -313,6 +304,9 @@ async function openSeries(item) {
   video.removeAttribute("src");
   video.load();
 
+  const oldList = document.getElementById("episodeList");
+  if (oldList) oldList.remove();
+
   try {
     const data = await request({
       action: "get_series_info",
@@ -323,16 +317,14 @@ async function openSeries(item) {
     const episodes = Object.values(seasons).flat();
 
     if (!episodes.length) {
-      $("playerMessage").textContent = "لا توجد حلقات متاحة لهذا المسلسل.";
+      $("playerMessage").textContent =
+        "لا توجد حلقات متاحة لهذا المسلسل.";
       return;
     }
 
     $("playerMessage").textContent =
       "تم العثور على " + episodes.length +
       " حلقة. اختر الحلقة من القائمة.";
-
-    const oldList = document.getElementById("episodeList");
-    if (oldList) oldList.remove();
 
     const list = document.createElement("div");
     list.id = "episodeList";
@@ -351,11 +343,10 @@ async function openSeries(item) {
         "background:#191827;color:white;text-align:right;";
 
       button.addEventListener("click", () => {
-        const ext = episode.container_extension || "mp4";
         const url = streamUrl(
           "series",
           episode.id,
-          ext
+          episode.container_extension || "mp4"
         );
 
         $("playerTitle").textContent = button.textContent;
@@ -422,11 +413,11 @@ $("retryBtn").addEventListener("click", () => {
   loadEverything();
 });
 
-function setupSearch(inputId, source, containerId, type) {
+function setupSearch(inputId, getSource, containerId, type) {
   $(inputId).addEventListener("input", event => {
     const query = event.target.value.trim().toLowerCase();
 
-    const filtered = source.filter(item =>
+    const filtered = getSource().filter(item =>
       String(item.name || "").toLowerCase().includes(query)
     );
 
@@ -434,8 +425,8 @@ function setupSearch(inputId, source, containerId, type) {
   });
 }
 
-setupSearch("liveSearch", liveChannels, "liveGrid", "live");
-setupSearch("movieSearch", movies, "movieGrid", "movie");
-setupSearch("seriesSearch", series, "seriesGrid", "series");
+setupSearch("liveSearch", () => liveChannels, "liveGrid", "live");
+setupSearch("movieSearch", () => movies, "movieGrid", "movie");
+setupSearch("seriesSearch", () => series, "seriesGrid", "series");
 
 loadEverything();
