@@ -1,256 +1,441 @@
 "use strict";
 
-const API = window.KOYO_CONFIG.API_BASE.replace(/\/+$/, "");
-const KEY = window.KOYO_CONFIG.API_KEY;
+const CONFIG = window.KOYO_CONFIG;
+
+const $ = id => document.getElementById(id);
 
 let liveChannels = [];
 let movies = [];
 let series = [];
 
-const $ = id => document.getElementById(id);
+const imageFallback =
+  "data:image/svg+xml," +
+  encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="300" height="200">
+      <rect width="100%" height="100%" fill="#1b1c2b"/>
+      <text x="50%" y="50%" fill="#9575ff"
+        font-size="30" text-anchor="middle"
+        dominant-baseline="middle">KOYO TV</text>
+    </svg>
+  `);
 
-async function request(path) {
+function showError(message) {
+  $("loadingText").textContent = "تعذر تحميل الاشتراك";
+  $("errorBox").hidden = false;
+  $("errorBox").textContent = message;
+  $("retryBtn").hidden = false;
+}
 
-    const response = await fetch(API + path, {
-        headers: {
-            "x-app-key": KEY
-        }
+function setLoading(message) {
+  $("errorBox").hidden = true;
+  $("retryBtn").hidden = true;
+  $("loadingText").textContent = message;
+}
+
+function apiUrl(params = {}) {
+  const base = CONFIG.XTREAM_URL.replace(/\/+$/, "");
+  const url = new URL(base + "/player_api.php");
+
+  url.searchParams.set("username", CONFIG.USERNAME);
+  url.searchParams.set("password", CONFIG.PASSWORD);
+
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  return url;
+}
+
+async function request(params = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(apiUrl(params), {
+      method: "GET",
+      signal: controller.signal,
+      cache: "no-store"
     });
-
-    const data = await response.json();
 
     if (!response.ok) {
-        throw new Error(data.error || "حدث خطأ بالاتصال");
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("رفض الخادم الاتصال. تحقق من بيانات الاشتراك أو صلاحية الوصول.");
+      }
+
+      if (response.status === 404) {
+        throw new Error("مسار API غير موجود على خادم الشركة.");
+      }
+
+      throw new Error("رد الخادم برمز HTTP: " + response.status);
     }
 
-    return data;
-}
-
-
-function showPage(name) {
-
-    document.querySelectorAll(".page").forEach(page => {
-        page.classList.remove("active");
-    });
-
-    $(name + "Page").classList.add("active");
-
-    document.querySelectorAll(".nav").forEach(button => {
-        button.classList.remove("active");
-    });
-
-    const buttons = [...document.querySelectorAll(".nav")];
-
-    const index = {
-        home: 0,
-        live: 1,
-        movies: 2,
-        series: 3,
-        downloads: 4,
-        settings: 5
-    }[name];
-
-    if (buttons[index]) buttons[index].classList.add("active");
-
-    window.scrollTo({top: 0, behavior: "smooth"});
-}
-
-
-function escapeHTML(value) {
-
-    return String(value).replace(/[&<>"']/g, char => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;"
-    })[char]);
-}
-
-
-function poster(item, type) {
-
-    const name = item.name || "بدون اسم";
-    const image = item.stream_icon || item.cover || "";
-
-    const id = type === "movie" ? item.stream_id : item.series_id;
-
-    return `
-        <div class="content-card"
-             data-kind="${type}"
-             data-id="${Number(id)}"
-             data-title="${escapeHTML(name)}">
-
-            <div class="poster">
-                ${image ? `<img src="${escapeHTML(image)}" loading="lazy">` : ""}
-            </div>
-
-            <div class="card-info">
-                <b>${escapeHTML(name)}</b>
-            </div>
-
-        </div>
-    `;
-}
-
-
-function channel(item) {
-
-    const name = item.name || "قناة";
-    const image = item.stream_icon || "";
-
-    return `
-        <div class="channel-card"
-             data-kind="live"
-             data-id="${Number(item.stream_id)}"
-             data-title="${escapeHTML(name)}">
-
-            <div class="channel-logo">
-                ${image ? `<img src="${escapeHTML(image)}">` : "TV"}
-            </div>
-
-            <div>
-                <b>${escapeHTML(name)}</b>
-                <small>● متاحة للمشاهدة</small>
-            </div>
-
-        </div>
-    `;
-}
-
-
-async function loadContent() {
+    const text = await response.text();
 
     try {
-
-        const [liveData, movieData, seriesData] = await Promise.all([
-            request("/api/live"),
-            request("/api/movies"),
-            request("/api/series")
-        ]);
-
-        liveChannels = (liveData.items || []).filter(item =>
-            String(item.name || "")
-                .trimStart()
-                .toUpperCase()
-                .startsWith("AR |")
-        );
-
-        movies = movieData.items || [];
-        series = seriesData.items || [];
-
-        renderContent();
-
-    } catch (error) {
-
-        console.error(error);
-
-        $("liveGrid").innerHTML =
-            `<div class="empty glass">${escapeHTML(error.message)}</div>`;
-
-        $("moviesGrid").innerHTML =
-            `<div class="empty glass">${escapeHTML(error.message)}</div>`;
-
-        $("seriesGrid").innerHTML =
-            `<div class="empty glass">${escapeHTML(error.message)}</div>`;
+      return JSON.parse(text);
+    } catch {
+      throw new Error("الخادم لم يرجع بيانات JSON صحيحة. تحقق من عنوان Xtream.");
     }
-}
 
-
-function renderContent() {
-
-    $("liveGrid").innerHTML =
-        liveChannels.length
-        ? liveChannels.map(channel).join("")
-        : `<div class="empty glass">لا توجد قنوات AR | حالياً</div>`;
-
-    $("moviesGrid").innerHTML =
-        movies.map(item => poster(item,"movie")).join("");
-
-    $("seriesGrid").innerHTML =
-        series.map(item => poster(item,"series")).join("");
-
-    $("recentGrid").innerHTML =
-        movies.slice(0,5).map(item => poster(item,"movie")).join("");
-}
-
-
-function search(inputId, getItems, targetId, renderer) {
-
-    $(inputId).addEventListener("input", event => {
-
-        const value = event.target.value.toLowerCase();
-
-        const results = getItems().filter(item =>
-            String(item.name || "").toLowerCase().includes(value)
-        );
-
-        $(targetId).innerHTML =
-            results.map(renderer).join("") ||
-            `<div class="empty glass">لا توجد نتائج</div>`;
-    });
-}
-
-
-search("liveSearch",()=>liveChannels,"liveGrid",channel);
-search("movieSearch",()=>movies,"moviesGrid",item=>poster(item,"movie"));
-search("seriesSearch",()=>series,"seriesGrid",item=>poster(item,"series"));
-
-
-async function playContent(kind,id,title) {
-
-    $("playerModal").classList.add("open");
-    $("playerTitle").textContent = title;
-    $("playerMessage").textContent = "جارٍ تجهيز البث...";
-
-    const video = $("videoPlayer");
-
-    try {
-
-        const result = await request(
-            `/api/play-url/${kind}/${id}`
-        );
-
-        video.src = result.url;
-
-        await video.play();
-
-        $("playerMessage").textContent = "";
-
-    } catch(error) {
-
-        $("playerMessage").textContent =
-            "تعذر تشغيل البث: " + error.message;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("انتهت مهلة الاتصال بالخادم. تحقق من الإنترنت وحاول مجدداً.");
     }
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        "تعذر الوصول إلى API. قد يكون السبب CORS أو مشكلة شبكة أو أن الخادم يستخدم HTTP غير متوافق مع GitHub Pages HTTPS."
+      );
+    }
+
+    throw error;
+
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
+function validAccount(data) {
+  const info = data?.user_info;
 
-function closePlayer() {
+  if (!info) {
+    throw new Error("رد الاشتراك غير متوقع. تأكد من أن بيانات Xtream صحيحة.");
+  }
 
-    const video = $("videoPlayer");
+  if (String(info.auth) !== "1") {
+    throw new Error("بيانات الدخول غير صحيحة أو الاشتراك غير مفعّل.");
+  }
 
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
+  if (String(info.status || "").toLowerCase() === "expired") {
+    throw new Error("انتهت صلاحية الاشتراك. تواصل مع مزود الخدمة.");
+  }
 
-    $("playerModal").classList.remove("open");
+  return info;
 }
 
+async function loadEverything() {
+  try {
+    if (!CONFIG || !CONFIG.XTREAM_URL ||
+        !CONFIG.USERNAME || !CONFIG.PASSWORD ||
+        CONFIG.XTREAM_URL.includes("YOUR-PROVIDER")) {
+      throw new Error("أكمل إعدادات Xtream داخل ملف config.js أولاً.");
+    }
 
-document.addEventListener("click", event => {
+    setLoading("جاري التحقق من بيانات الاشتراك...");
 
-    const card = event.target.closest("[data-kind][data-id]");
+    const account = await request();
+    validAccount(account);
 
-    if (!card) return;
+    setLoading("تم التحقق. جاري تحميل القنوات والأفلام والمسلسلات...");
 
-    playContent(
-        card.dataset.kind,
-        card.dataset.id,
-        card.dataset.title
+    const results = await Promise.allSettled([
+      request({ action: "get_live_streams" }),
+      request({ action: "get_vod_streams" }),
+      request({ action: "get_series" })
+    ]);
+
+    if (results.every(result => result.status === "rejected")) {
+      throw new Error(
+        "تم الاتصال بالحساب لكن فشل تحميل جميع الأقسام. " +
+        results.map(r => r.reason.message).join(" | ")
+      );
+    }
+
+    liveChannels = results[0].status === "fulfilled"
+      ? results[0].value : [];
+
+    movies = results[1].status === "fulfilled"
+      ? results[1].value : [];
+
+    series = results[2].status === "fulfilled"
+      ? results[2].value : [];
+
+    if (!Array.isArray(liveChannels) ||
+        !Array.isArray(movies) ||
+        !Array.isArray(series)) {
+      throw new Error("الخادم أرسل صيغة بيانات غير متوقعة.");
+    }
+
+    liveChannels = liveChannels.filter(channel =>
+      String(channel.name || "").startsWith("AR |")
     );
+
+    renderAll();
+
+    $("loader").hidden = true;
+    $("app").hidden = false;
+
+  } catch (error) {
+    showError(error.message || "حدث خطأ غير معروف.");
+  }
+}
+
+function safeImage(url) {
+  if (!url) return imageFallback;
+
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return imageFallback;
+    }
+    return parsed.href;
+  } catch {
+    return imageFallback;
+  }
+}
+
+function createCard(item, type) {
+  const title = item.name || "بدون اسم";
+
+  const image = type === "live"
+    ? item.stream_icon
+    : item.cover || item.stream_icon;
+
+  const card = document.createElement("article");
+  card.className = "content-card";
+
+  const img = document.createElement("img");
+  img.src = safeImage(image);
+  img.alt = title;
+  img.loading = "lazy";
+  img.onerror = () => img.src = imageFallback;
+
+  const info = document.createElement("div");
+  info.className = "card-info";
+
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+
+  const small = document.createElement("small");
+  small.textContent =
+    type === "live" ? "بث مباشر" :
+    type === "movie" ? "فيلم" : "مسلسل";
+
+  info.append(strong, small);
+  card.append(img, info);
+
+  card.addEventListener("click", () => {
+    if (type === "live") {
+      playContent(title, liveUrl(item));
+    } else if (type === "movie") {
+      playContent(title, movieUrl(item));
+    } else {
+      openSeries(item);
+    }
+  });
+
+  return card;
+}
+
+function liveUrl(item) {
+  return streamUrl("live", item.stream_id, "ts");
+}
+
+function movieUrl(item) {
+  const ext = item.container_extension || "mp4";
+  return streamUrl("movie", item.stream_id, ext);
+}
+
+function streamUrl(type, id, ext) {
+  const base = CONFIG.XTREAM_URL.replace(/\/+$/, "");
+
+  return base + "/" + type + "/" +
+    encodeURIComponent(CONFIG.USERNAME) + "/" +
+    encodeURIComponent(CONFIG.PASSWORD) + "/" +
+    encodeURIComponent(id) + "." + encodeURIComponent(ext);
+}
+
+function fillGrid(containerId, items, type, limit = Infinity) {
+  const container = $(containerId);
+  container.replaceChildren();
+
+  const selected = items.slice(0, limit);
+
+  if (!selected.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "لا يوجد محتوى متاح حالياً.";
+    container.append(empty);
+    return;
+  }
+
+  selected.forEach(item => {
+    container.append(createCard(item, type));
+  });
+}
+
+function renderAll() {
+  fillGrid("liveGrid", liveChannels, "live");
+  fillGrid("homeLive", liveChannels, "live", 6);
+  fillGrid("movieGrid", movies, "movie");
+  fillGrid("seriesGrid", series, "series");
+
+  $("liveCount").textContent = liveChannels.length + " قناة";
+  $("movieCount").textContent = movies.length + " فيلم";
+  $("seriesCount").textContent = series.length + " مسلسل";
+
+  $("settingsLive").textContent = liveChannels.length;
+  $("settingsMovies").textContent = movies.length;
+  $("settingsSeries").textContent = series.length;
+}
+
+function playContent(title, url) {
+  if (!url) {
+    alert("رابط المحتوى غير متوفر.");
+    return;
+  }
+
+  $("playerTitle").textContent = title;
+  $("playerMessage").textContent = "جاري تشغيل المحتوى...";
+  $("playerModal").hidden = false;
+
+  const video = $("videoPlayer");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+
+  video.src = url;
+  video.load();
+
+  video.play().catch(() => {
+    $("playerMessage").textContent =
+      "تعذر التشغيل التلقائي. اضغط زر التشغيل.";
+  });
+}
+
+async function openSeries(item) {
+  $("playerTitle").textContent = item.name || "المسلسل";
+  $("playerMessage").textContent = "جاري تحميل الحلقات...";
+  $("playerModal").hidden = false;
+
+  const video = $("videoPlayer");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+
+  try {
+    const data = await request({
+      action: "get_series_info",
+      series_id: item.series_id
+    });
+
+    const seasons = data?.episodes || {};
+    const episodes = Object.values(seasons).flat();
+
+    if (!episodes.length) {
+      $("playerMessage").textContent = "لا توجد حلقات متاحة لهذا المسلسل.";
+      return;
+    }
+
+    $("playerMessage").textContent =
+      "تم العثور على " + episodes.length +
+      " حلقة. اختر الحلقة من القائمة.";
+
+    const oldList = document.getElementById("episodeList");
+    if (oldList) oldList.remove();
+
+    const list = document.createElement("div");
+    list.id = "episodeList";
+    list.style.cssText =
+      "overflow:auto;padding:15px;max-height:45vh;";
+
+    episodes.forEach((episode, index) => {
+      const button = document.createElement("button");
+
+      button.textContent =
+        episode.title || "الحلقة " + (index + 1);
+
+      button.style.cssText =
+        "display:block;width:100%;padding:13px;margin:6px 0;" +
+        "border:1px solid #ffffff22;border-radius:12px;" +
+        "background:#191827;color:white;text-align:right;";
+
+      button.addEventListener("click", () => {
+        const ext = episode.container_extension || "mp4";
+        const url = streamUrl(
+          "series",
+          episode.id,
+          ext
+        );
+
+        $("playerTitle").textContent = button.textContent;
+        $("playerMessage").textContent = "جاري تشغيل الحلقة...";
+
+        video.src = url;
+        video.load();
+
+        video.play().catch(() => {
+          $("playerMessage").textContent =
+            "اضغط زر التشغيل لبدء الحلقة.";
+        });
+
+        list.remove();
+      });
+
+      list.append(button);
+    });
+
+    $("playerModal").append(list);
+
+  } catch (error) {
+    $("playerMessage").textContent = error.message;
+  }
+}
+
+function changePage(page) {
+  document.querySelectorAll(".page").forEach(element => {
+    element.classList.toggle(
+      "active",
+      element.id === "page-" + page
+    );
+  });
+
+  document.querySelectorAll(".nav-item").forEach(element => {
+    element.classList.toggle(
+      "active",
+      element.dataset.page === page
+    );
+  });
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+document.querySelectorAll("[data-page]").forEach(button => {
+  button.addEventListener("click", () => {
+    changePage(button.dataset.page);
+  });
 });
 
+$("closePlayer").addEventListener("click", () => {
+  $("videoPlayer").pause();
+  $("videoPlayer").removeAttribute("src");
+  $("videoPlayer").load();
 
-$("refreshBtn").addEventListener("click", loadContent);
+  $("playerModal").hidden = true;
 
-loadContent();
+  const list = document.getElementById("episodeList");
+  if (list) list.remove();
+});
+
+$("retryBtn").addEventListener("click", () => {
+  setLoading("جاري إعادة الاتصال...");
+  loadEverything();
+});
+
+function setupSearch(inputId, source, containerId, type) {
+  $(inputId).addEventListener("input", event => {
+    const query = event.target.value.trim().toLowerCase();
+
+    const filtered = source.filter(item =>
+      String(item.name || "").toLowerCase().includes(query)
+    );
+
+    fillGrid(containerId, filtered, type);
+  });
+}
+
+setupSearch("liveSearch", liveChannels, "liveGrid", "live");
+setupSearch("movieSearch", movies, "movieGrid", "movie");
+setupSearch("seriesSearch", series, "seriesGrid", "series");
+
+loadEverything();
