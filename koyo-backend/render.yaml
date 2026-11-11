@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: koyo-tv-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: XTREAM_URL
+        sync: false
+      - key: XTREAM_USERNAME
+        sync: false
+      - key: XTREAM_PASSWORD
+        sync: false
+      - key: ALLOWED_ORIGIN
+        value: https://royahassam3064.github.io
