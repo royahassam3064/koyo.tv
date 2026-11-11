@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#090a12">
+
+    <title>KOYO TV</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<header class="topbar glass">
+    <div class="logo">
+        <span class="logo-icon">K</span>
+        <span>KOYO <b>TV</b></span>
+    </div>
+
+    <button id="refreshBtn" class="refresh">↻</button>
+</header>
+
+<main>
+
+    <section id="homePage" class="page active">
+
+        <div class="hero glass">
+            <div>
+                <span class="eyebrow">KOYO ENTERTAINMENT</span>
+
+                <h1>
+                    عالم الترفيه<br>
+                    <span>بين يديك.</span>
+                </h1>
+
+                <p>قنوات مباشرة وأفلام ومسلسلات بمكان واحد.</p>
+
+                <button onclick="showPage('live')" class="main-btn">
+                    شاهد الآن ←
+                </button>
+            </div>
+
+            <div class="hero-art">
+                <div class="play-circle">▶</div>
+            </div>
+        </div>
+
+        <h2>استكشف الأقسام</h2>
+
+        <div class="categories">
+            <div class="category glass" onclick="showPage('live')">
+                <span>▣</span>
+                <b>البث المباشر</b>
+            </div>
+
+            <div class="category glass" onclick="showPage('movies')">
+                <span>▤</span>
+                <b>أفلام</b>
+            </div>
+
+            <div class="category glass" onclick="showPage('series')">
+                <span>▥</span>
+                <b>مسلسلات</b>
+            </div>
+        </div>
+
+        <h2>أحدث الأفلام</h2>
+        <div id="recentGrid" class="grid"></div>
+
+    </section>
+
+
+    <section id="livePage" class="page">
+
+        <div class="heading">
+            <span class="eyebrow">LIVE TV</span>
+            <h1>البث المباشر</h1>
+            <p>القنوات العربية المتاحة.</p>
+        </div>
+
+        <input id="liveSearch" class="search" placeholder="ابحث عن قناة...">
+
+        <div id="liveGrid" class="channels">
+            <div class="loading">جارٍ تحميل القنوات...</div>
+        </div>
+
+    </section>
+
+
+    <section id="moviesPage" class="page">
+
+        <div class="heading">
+            <span class="eyebrow">MOVIE LIBRARY</span>
+            <h1>الأفلام</h1>
+        </div>
+
+        <input id="movieSearch" class="search" placeholder="ابحث عن فيلم...">
+
+        <div id="moviesGrid" class="grid"></div>
+
+    </section>
+
+
+    <section id="seriesPage" class="page">
+
+        <div class="heading">
+            <span class="eyebrow">SERIES LIBRARY</span>
+            <h1>المسلسلات</h1>
+        </div>
+
+        <input id="seriesSearch" class="search" placeholder="ابحث عن مسلسل...">
+
+        <div id="seriesGrid" class="grid"></div>
+
+    </section>
+
+
+    <section id="downloadsPage" class="page">
+        <div class="heading">
+            <h1>التنزيلات</h1>
+            <p>المحتوى المحفوظ للمشاهدة لاحقاً.</p>
+        </div>
+        <div class="empty glass">قريباً</div>
+    </section>
+
+
+    <section id="settingsPage" class="page">
+        <div class="heading">
+            <h1>الإعدادات</h1>
+        </div>
+
+        <div class="setting glass">
+            <b>المظهر</b>
+            <span>Liquid Glass</span>
+        </div>
+
+        <div class="setting glass">
+            <b>اللغة</b>
+            <span>العربية</span>
+        </div>
+
+        <div class="setting glass">
+            <b>المنطقة الزمنية</b>
+            <span>بغداد</span>
+        </div>
+    </section>
+
+</main>
+
+
+<nav class="bottom-nav glass">
+
+    <button class="nav active" onclick="showPage('home')">
+        <span>⌂</span>
+        <small>الرئيسية</small>
+    </button>
+
+    <button class="nav" onclick="showPage('live')">
+        <span>▣</span>
+        <small>مباشر</small>
+    </button>
+
+    <button class="nav" onclick="showPage('movies')">
+        <span>▤</span>
+        <small>أفلام</small>
+    </button>
+
+    <button class="nav" onclick="showPage('series')">
+        <span>▥</span>
+        <small>مسلسلات</small>
+    </button>
+
+    <button class="nav" onclick="showPage('downloads')">
+        <span>⇩</span>
+        <small>التنزيلات</small>
+    </button>
+
+    <button class="nav" onclick="showPage('settings')">
+        <span>⚙</span>
+        <small>الإعدادات</small>
+    </button>
+
+</nav>
+
+
+<div id="playerModal" class="player-modal">
+
+    <div class="player-box glass">
+
+        <div class="player-header">
+            <b id="playerTitle">KOYO TV</b>
+            <button onclick="closePlayer()">✕</button>
+        </div>
+
+        <video id="videoPlayer" controls playsinline></video>
+
+        <p id="playerMessage"></p>
+
+    </div>
+
+</div>
+
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
